@@ -3,8 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>AI Synthesizer</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,7 +34,6 @@
       font-size: 0.85rem;
       cursor: pointer;
     }
-    /* 設定パネル */
     #settingsPanel {
       display: none;
       background: #1e293b;
@@ -56,7 +53,6 @@
       color: #fff;
       font-size: 0.85rem;
     }
-    /* チャット・結果表示 */
     #outputArea { flex: 1; display: flex; flex-direction: column; gap: 16px; }
     .card {
       background: #1e293b;
@@ -91,7 +87,6 @@
       text-align: center;
       padding: 12px;
     }
-    /* 入力フォーム固定 */
     #inputForm {
       position: fixed;
       bottom: 0;
@@ -132,7 +127,6 @@
     <button class="icon-btn" id="toggleSettingsBtn">⚙️ APIキー設定</button>
   </header>
 
-  <!-- APIキー保存パネル（端末のlocalStorageに保存） -->
   <div id="settingsPanel">
     <div class="input-group">
       <label>Google Gemini API Key (再構築用にも使用)</label>
@@ -159,7 +153,6 @@
   </form>
 
   <script>
-    // --- 1. APIキー管理（localStorage） ---
     const keys = {
       gemini: localStorage.getItem('KEY_GEMINI') || '',
       openai: localStorage.getItem('KEY_OPENAI') || '',
@@ -186,7 +179,7 @@
       alert('APIキーを端末内に保存しました。');
     });
 
-    // --- 2. 各社API呼び出し関数群 ---
+    // --- Gemini 呼び出し（安定版 gemini-1.5-flash） ---
     async function callGemini(prompt, apiKey) {
       if (!apiKey) throw new Error("Gemini APIキー未設定");
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
@@ -197,7 +190,10 @@
           contents: [{ parts: [{ text: prompt }] }]
         })
       });
-      if (!res.ok) throw new Error(`Gemini通信エラー (${res.status})`);
+      if (!res.ok) {
+        const errDetail = await res.text();
+        throw new Error(`Gemini通信エラー (${res.status}): ${errDetail}`);
+      }
       const data = await res.json();
       return { provider: "Google Gemini", text: data.candidates[0].content.parts[0].text };
     }
@@ -241,7 +237,6 @@
       return { provider: "Anthropic (Claude)", text: data.content[0].text };
     }
 
-    // --- 3. 画面レンダリング ---
     const outputArea = document.getElementById('outputArea');
     const sendBtn = document.getElementById('sendBtn');
     const promptInput = document.getElementById('promptInput');
@@ -260,7 +255,6 @@
       window.scrollTo(0, document.body.scrollHeight);
     }
 
-    // --- 4. 並列実行 ＆ 再構築パイプライン ---
     document.getElementById('inputForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const userPrompt = promptInput.value.trim();
@@ -271,7 +265,6 @@
         return;
       }
 
-      // UI初期化
       outputArea.innerHTML = '';
       promptInput.value = '';
       sendBtn.disabled = true;
@@ -281,7 +274,6 @@
       status.textContent = '各社AIへ同時に問い合わせ中...';
       outputArea.appendChild(status);
 
-      // 設定されているキーのプロバイダのみ並列リクエスト
       const tasks = [];
       if (keys.gemini) tasks.push(callGemini(userPrompt, keys.gemini));
       if (keys.openai) tasks.push(callOpenAI(userPrompt, keys.openai));
@@ -291,19 +283,18 @@
       status.remove();
 
       const successes = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+      const failures = settled.filter(s => s.status === 'rejected').map(s => s.reason.message);
 
       if (successes.length === 0) {
-        renderCard("エラー", "すべてのAI呼び出しに失敗しました。APIキーまたは通信状態を確認してください。");
+        renderCard("エラー詳細", `すべてのAI呼び出しに失敗しました。\n\n理由:\n${failures.join('\n')}`);
         sendBtn.disabled = false;
         return;
       }
 
-      // 各社の回答を画面にカード表示
       successes.forEach(res => {
         renderCard(res.provider, res.text);
       });
 
-      // 複数社ある場合、またはGeminiキーがあれば再構築を実行
       if (keys.gemini) {
         const synthStatus = document.createElement('div');
         synthStatus.className = 'status-text';
@@ -313,8 +304,8 @@
         const context = successes.map(s => `【${s.provider}の回答】\n${s.text}`).join('\n\n');
         const synthesizePrompt = `
 あなたは論理と客観性に優れた敏腕エディターです。
-ユーザーの質問に対し、複数のAIモデルから回答を集めました。
-これらを精査・比較し、論理の矛盾やハルシネーション（誤情報）を排除して、最も正確かつ分かりやすい「単一の最終回答」として再構築してください。
+ユーザーの質問に対し、各AIモデルから回答を集めました。
+これらを精査・比較し、論理の矛盾や誤情報を排除して、最も正確かつ分かりやすい「単一の最終回答」として再構築してください。
 
 【ユーザーの質問】
 ${userPrompt}
