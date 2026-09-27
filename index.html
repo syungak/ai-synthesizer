@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AI Synthesizer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      padding-bottom: 90px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #334155;
+    }
+    h1 { font-size: 1.25rem; font-weight: 700; color: #38bdf8; }
+    button.icon-btn {
+      background: #1e293b;
+      border: 1px solid #475569;
+      color: #cbd5e1;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    /* 設定パネル */
+    #settingsPanel {
+      display: none;
+      background: #1e293b;
+      padding: 14px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      border: 1px solid #475569;
+    }
+    .input-group { margin-bottom: 10px; }
+    .input-group label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px; }
+    .input-group input {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 0.85rem;
+    }
+    /* チャット・結果表示 */
+    #outputArea { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 14px;
+      border: 1px solid #334155;
+    }
+    .card.final {
+      border: 2px solid #38bdf8;
+      background: #172554;
+    }
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+    }
+    .card.final .card-title { color: #38bdf8; }
+    .card-content {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .status-text {
+      color: #94a3b8;
+      font-size: 0.85rem;
+      font-style: italic;
+      text-align: center;
+      padding: 12px;
+    }
+    /* 入力フォーム固定 */
+    #inputForm {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #0f172a;
+      padding: 12px 16px;
+      border-top: 1px solid #334155;
+      display: flex;
+      gap: 8px;
+    }
+    #promptInput {
+      flex: 1;
+      padding: 10px 14px;
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 20px;
+      color: #fff;
+      font-size: 0.95rem;
+      outline: none;
+    }
+    #sendBtn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 0 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #sendBtn:disabled { background: #475569; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>AI Synthesizer</h1>
+    <button class="icon-btn" id="toggleSettingsBtn">⚙️ APIキー設定</button>
+  </header>
+
+  <!-- APIキー保存パネル（端末のlocalStorageに保存） -->
+  <div id="settingsPanel">
+    <div class="input-group">
+      <label>Google Gemini API Key (再構築用にも使用)</label>
+      <input type="password" id="geminiKey" placeholder="AIzaSy...">
+    </div>
+    <div class="input-group">
+      <label>OpenAI API Key</label>
+      <input type="password" id="openaiKey" placeholder="sk-proj-...">
+    </div>
+    <div class="input-group">
+      <label>Anthropic API Key</label>
+      <input type="password" id="anthropicKey" placeholder="sk-ant-...">
+    </div>
+    <button class="icon-btn" id="saveKeysBtn" style="width: 100%; background: #0284c7; color: #fff; margin-top: 6px;">保存する</button>
+  </div>
+
+  <main id="outputArea">
+    <div class="status-text" id="statusMessage">質問を入力すると、各社AIに同時接続して回答を1つに統合します。</div>
+  </main>
+
+  <form id="inputForm">
+    <input type="text" id="promptInput" placeholder="質問を入力..." autocomplete="off">
+    <button type="submit" id="sendBtn">送信</button>
+  </form>
+
+  <script>
+    // --- 1. APIキー管理（localStorage） ---
+    const keys = {
+      gemini: localStorage.getItem('KEY_GEMINI') || '',
+      openai: localStorage.getItem('KEY_OPENAI') || '',
+      anthropic: localStorage.getItem('KEY_ANTHROPIC') || ''
+    };
+
+    document.getElementById('geminiKey').value = keys.gemini;
+    document.getElementById('openaiKey').value = keys.openai;
+    document.getElementById('anthropicKey').value = keys.anthropic;
+
+    const settingsPanel = document.getElementById('settingsPanel');
+    document.getElementById('toggleSettingsBtn').addEventListener('click', () => {
+      settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
+    });
+
+    document.getElementById('saveKeysBtn').addEventListener('click', () => {
+      keys.gemini = document.getElementById('geminiKey').value.trim();
+      keys.openai = document.getElementById('openaiKey').value.trim();
+      keys.anthropic = document.getElementById('anthropicKey').value.trim();
+      localStorage.setItem('KEY_GEMINI', keys.gemini);
+      localStorage.setItem('KEY_OPENAI', keys.openai);
+      localStorage.setItem('KEY_ANTHROPIC', keys.anthropic);
+      settingsPanel.style.display = 'none';
+      alert('APIキーを端末内に保存しました。');
+    });
+
+    // --- 2. 各社API呼び出し関数群 ---
+    async function callGemini(prompt, apiKey) {
+      if (!apiKey) throw new Error("Gemini APIキー未設定");
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+      if (!res.ok) throw new Error(`Gemini通信エラー (${res.status})`);
+      const data = await res.json();
+      return { provider: "Google Gemini", text: data.candidates[0].content.parts[0].text };
+    }
+
+    async function callOpenAI(prompt, apiKey) {
+      if (!apiKey) throw new Error("OpenAI APIキー未設定");
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      if (!res.ok) throw new Error(`OpenAI通信エラー (${res.status})`);
+      const data = await res.json();
+      return { provider: "OpenAI (GPT-4o)", text: data.choices[0].message.content };
+    }
+
+    async function callAnthropic(prompt, apiKey) {
+      if (!apiKey) throw new Error("Anthropic APIキー未設定");
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "dangerously-allow-browser": "true"
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      if (!res.ok) throw new Error(`Anthropic通信エラー (${res.status})`);
+      const data = await res.json();
+      return { provider: "Anthropic (Claude)", text: data.content[0].text };
+    }
+
+    // --- 3. 画面レンダリング ---
+    const outputArea = document.getElementById('outputArea');
+    const sendBtn = document.getElementById('sendBtn');
+    const promptInput = document.getElementById('promptInput');
+
+    function renderCard(title, content, isFinal = false) {
+      const card = document.createElement('div');
+      card.className = `card ${isFinal ? 'final' : ''}`;
+      card.innerHTML = `
+        <div class="card-title">
+          <span>${title}</span>
+          ${isFinal ? '<span>✨ 統合・再構築済み</span>' : ''}
+        </div>
+        <div class="card-content">${content}</div>
+      `;
+      outputArea.appendChild(card);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    // --- 4. 並列実行 ＆ 再構築パイプライン ---
+    document.getElementById('inputForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userPrompt = promptInput.value.trim();
+      if (!userPrompt) return;
+
+      if (!keys.gemini && !keys.openai && !keys.anthropic) {
+        alert("右上の「⚙️ APIキー設定」から最低1つのAPIキーを登録してください。");
+        return;
+      }
+
+      // UI初期化
+      outputArea.innerHTML = '';
+      promptInput.value = '';
+      sendBtn.disabled = true;
+
+      const status = document.createElement('div');
+      status.className = 'status-text';
+      status.textContent = '各社AIへ同時に問い合わせ中...';
+      outputArea.appendChild(status);
+
+      // 設定されているキーのプロバイダのみ並列リクエスト
+      const tasks = [];
+      if (keys.gemini) tasks.push(callGemini(userPrompt, keys.gemini));
+      if (keys.openai) tasks.push(callOpenAI(userPrompt, keys.openai));
+      if (keys.anthropic) tasks.push(callAnthropic(userPrompt, keys.anthropic));
+
+      const settled = await Promise.allSettled(tasks);
+      status.remove();
+
+      const successes = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+
+      if (successes.length === 0) {
+        renderCard("エラー", "すべてのAI呼び出しに失敗しました。APIキーまたは通信状態を確認してください。");
+        sendBtn.disabled = false;
+        return;
+      }
+
+      // 各社の回答を画面にカード表示
+      successes.forEach(res => {
+        renderCard(res.provider, res.text);
+      });
+
+      // 複数社ある場合、またはGeminiキーがあれば再構築を実行
+      if (keys.gemini) {
+        const synthStatus = document.createElement('div');
+        synthStatus.className = 'status-text';
+        synthStatus.textContent = '各回答を突合し、単一回答を再構築中...';
+        outputArea.appendChild(synthStatus);
+
+        const context = successes.map(s => `【${s.provider}の回答】\n${s.text}`).join('\n\n');
+        const synthesizePrompt = `
+あなたは論理と客観性に優れた敏腕エディターです。
+ユーザーの質問に対し、複数のAIモデルから回答を集めました。
+これらを精査・比較し、論理の矛盾やハルシネーション（誤情報）を排除して、最も正確かつ分かりやすい「単一の最終回答」として再構築してください。
+
+【ユーザーの質問】
+${userPrompt}
+
+【各社AIの回答データ】
+${context}
+`;
+        try {
+          const synthesized = await callGemini(synthesizePrompt, keys.gemini);
+          synthStatus.remove();
+          renderCard("最終統合回答", synthesized.text, true);
+        } catch (err) {
+          synthStatus.remove();
+          renderCard("統合エラー", `再構築処理中にエラーが発生しました: ${err.message}`);
+        }
+      }
+
+      sendBtn.disabled = false;
+    });
+  </script>
+</body>
+</html>
