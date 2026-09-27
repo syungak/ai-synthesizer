@@ -189,7 +189,7 @@
     // --- 2. 各社API呼び出し関数群 ---
     async function callGemini(prompt, apiKey) {
       if (!apiKey) throw new Error("Gemini APIキー未設定");
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
